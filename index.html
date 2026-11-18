@@ -1,0 +1,896 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Wechselbrücken Tausch-Monitor (Jira CSV Upload &amp; KW-Auswertung)</title>
+  <style>
+    :root {
+      --bg: #f4f6f9;
+      --card: #ffffff;
+      --text: #1e293b;
+      --muted: #64748b;
+      --border: #e2e8f0;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --green-bg: #dcfce7;
+      --green-text: #166534;
+      --amber-bg: #fef3c7;
+      --amber-text: #92400e;
+      --red-bg: #fee2e2;
+      --red-text: #991b1b;
+      --blue-bg: #dbeafe;
+      --blue-text: #1e40af;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.45;
+    }
+
+    header {
+      background: #0f172a;
+      color: #fff;
+      padding: 18px 28px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    header h1 {
+      margin: 0;
+      font-size: 1.25rem;
+      font-weight: 600;
+    }
+    header p {
+      margin: 2px 0 0;
+      font-size: 0.85rem;
+      color: #94a3b8;
+    }
+
+    .upload-area {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .file-status {
+      font-size: 0.85rem;
+      padding: 6px 12px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.1);
+      color: #e2e8f0;
+    }
+    .file-status.loaded {
+      background: var(--green-bg);
+      color: var(--green-text);
+      font-weight: 600;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 24px auto;
+      padding: 0 20px;
+    }
+
+    .toolbar {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px 20px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-end;
+      gap: 16px;
+      margin-bottom: 20px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
+
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .control-group label {
+      font-size: 0.78rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      color: var(--muted);
+    }
+
+    select, input[type="text"] {
+      padding: 8px 12px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 0.92rem;
+      background: #fff;
+      color: var(--text);
+    }
+    select:disabled {
+      background: #f1f5f9;
+      color: #94a3b8;
+      cursor: not-allowed;
+    }
+
+    .btn {
+      padding: 9px 15px;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .btn-primary {
+      background: var(--primary);
+      color: #fff;
+    }
+    .btn-primary:hover:not(:disabled) { background: var(--primary-hover); }
+    .btn-outline {
+      background: #fff;
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+    .btn-outline:hover:not(:disabled) { background: #f8fafc; }
+
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+    .kpi-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px 20px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
+    .kpi-title {
+      font-size: 0.82rem;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    .kpi-value {
+      font-size: 1.9rem;
+      font-weight: 700;
+      margin: 6px 0 2px;
+    }
+    .kpi-sub {
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+
+    .info-banner {
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      color: #1e3a8a;
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-size: 0.88rem;
+      margin-bottom: 20px;
+      display: none;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .table-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
+    .table-header {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+    }
+    .table-header h2 {
+      margin: 0;
+      font-size: 1.05rem;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .tab {
+      padding: 6px 12px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: #f8fafc;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+    .tab.active {
+      background: var(--primary);
+      color: #fff;
+      border-color: var(--primary);
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+    }
+    th, td {
+      padding: 11px 14px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+    th {
+      background: #f8fafc;
+      font-weight: 600;
+      color: var(--muted);
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    tr:hover td { background: #f8fafc; }
+    tr.deselected td {
+      opacity: 0.45;
+      background: #fafafa;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 3px 9px;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .badge-green { background: var(--green-bg); color: var(--green-text); }
+    .badge-red { background: var(--red-bg); color: var(--red-text); }
+    .badge-amber { background: var(--amber-bg); color: var(--amber-text); }
+    .badge-blue { background: var(--blue-bg); color: var(--blue-text); }
+
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: var(--muted);
+    }
+    .drop-zone {
+      border: 2px dashed #cbd5e1;
+      border-radius: 10px;
+      padding: 36px 20px;
+      max-width: 520px;
+      margin: 0 auto;
+      background: #f8fafc;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .drop-zone:hover, .drop-zone.dragover {
+      border-color: var(--primary);
+      background: #eff6ff;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Wechselbrücken Tausch-Monitor</h1>
+    <p>Auswertung nach Kalenderwoche (inkl. Donnerstag-Meldefrist &amp; Verschiebungs-Tracking)</p>
+  </div>
+  <div class="upload-area">
+    <span id="fileStatus" class="file-status">Keine Datei geladen</span>
+    <button type="button" class="btn btn-primary" id="uploadTriggerBtn">📂 Jira CSV auswählen</button>
+    <input type="file" id="csvFileInput" accept=".csv,text/csv" style="display:none;" />
+  </div>
+</header>
+
+<div class="container">
+  <div class="toolbar">
+    <div class="control-group">
+      <label for="kwSelect">Kalenderwoche (KW)</label>
+      <select id="kwSelect" style="min-width: 190px; font-weight: 600;" disabled>
+        <option value="">Bitte erst CSV laden...</option>
+      </select>
+    </div>
+
+    <div class="control-group">
+      <label for="projectFilter">Ticket-Typ</label>
+      <select id="projectFilter">
+        <option value="LOS" selected>Nur Tausch-Tickets (LOS-*)</option>
+        <option value="ALL">Alle Tickets (LOS, QOS, ITD)</option>
+      </select>
+    </div>
+
+    <div class="control-group">
+      <label for="searchInput">Suche (Ort, Key, Brücke)</label>
+      <input type="text" id="searchInput" placeholder="z. B. Tutzing, LOS-292..." />
+    </div>
+
+    <div class="control-group" style="margin-left:auto; flex-direction:row; align-items:center; flex-wrap:wrap;">
+      <button type="button" class="btn btn-outline" id="selectAllBtn" disabled>Alle auswählen</button>
+      <button type="button" class="btn btn-outline" id="deselectAllBtn" disabled>Alle abwählen</button>
+      <button type="button" class="btn btn-primary" id="exportCsvBtn" disabled>⬇ KW-Bericht exportieren</button>
+    </div>
+  </div>
+
+  <div class="info-banner" id="deadlineBanner">
+    <span id="deadlineText"></span>
+    <span style="font-size:0.82rem; color:#1d4ed8;">Tipp: Hake „Nach Do. gemeldet (+1 KW)“ an, falls ein Wunsch verspätet einging.</span>
+  </div>
+
+  <div class="kpi-grid">
+    <div class="kpi-card">
+      <div class="kpi-title">Ausgewählte Datensätze (KW)</div>
+      <div class="kpi-value" id="kpiTotal">0</div>
+      <div class="kpi-sub" id="kpiTotalSub">Relevante Tickets für diese KW</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-title">Erfolgreich getauscht</div>
+      <div class="kpi-value" style="color:#166534;" id="kpiSwapped">0</div>
+      <div class="kpi-sub" id="kpiSwappedRate">0 % Quote</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-title">Verschoben</div>
+      <div class="kpi-value" style="color:#991b1b;" id="kpiPostponed">0</div>
+      <div class="kpi-sub">Pünktlich gemeldet, aber nicht in KW getauscht</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-title">Vorgemerkt (Nach Do. gemeldet)</div>
+      <div class="kpi-value" style="color:#92400e;" id="kpiLate">0</div>
+      <div class="kpi-sub">In diese KW aus Vorwoche gerutscht</div>
+    </div>
+  </div>
+
+  <div class="table-card">
+    <div class="table-header">
+      <h2 id="tableTitle">Tickets der ausgewählten Kalenderwoche</h2>
+      <div class="tabs">
+        <button type="button" class="tab active" data-filter="ALL">Alle (<span id="countAll">0</span>)</button>
+        <button type="button" class="tab" data-filter="GETAUSCHT">Getauscht (<span id="countSwapped">0</span>)</button>
+        <button type="button" class="tab" data-filter="VERSCHOBEN">Verschoben (<span id="countPostponed">0</span>)</button>
+        <button type="button" class="tab" data-filter="UNTERMIN">Ohne Datum (<span id="countNoDate">0</span>)</button>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:42px;"><input type="checkbox" id="masterCheckbox" checked title="Alle sichtbaren Zeilen an/abwählen" /></th>
+            <th>Ticket</th>
+            <th>Brückenplatz / Standort</th>
+            <th>Brücken-Nr.</th>
+            <th>Summary</th>
+            <th>Wunschdatum</th>
+            <th>Tats. Tauschdatum</th>
+            <th>Nach Do. gemeldet?</th>
+            <th>KW-Bewertung</th>
+          </tr>
+        </thead>
+        <tbody id="tableBody">
+          <tr>
+            <td colspan="9" class="empty-state">
+              <div class="drop-zone" id="dropZone">
+                <div style="font-size:2rem; margin-bottom:8px;">📄</div>
+                <strong>Jira CSV-Datei hier ablegen oder klicken</strong>
+                <p style="margin:6px 0 0; font-size:0.85rem;">Unterstützt Jira-Standard-Exporte (.csv)</p>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+  let allTickets = [];
+  let activeStatusTab = "ALL";
+
+  const MONTHS_EN = {
+    Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
+    Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11
+  };
+
+  function parseJiraDate(str) {
+    if (!str) return null;
+    const clean = str.trim();
+    if (!clean) return null;
+
+    // Format 1: DD.MM.YYYY
+    const deMatch = clean.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})/);
+    if (deMatch) {
+      const d = new Date(Number(deMatch[3]), Number(deMatch[2]) - 1, Number(deMatch[1]));
+      return isNaN(d.getTime()) ? null : d;
+    }
+
+    // Format 2: DD/Mon/YY (z.B. 19/Nov/26 12:00 AM)
+    const enMatch = clean.match(/^(\d{1,2})\/([A-Za-z]{3})\/(\d{2,4})/);
+    if (enMatch) {
+      const month = MONTHS_EN[enMatch[2]];
+      if (month !== undefined) {
+        let year = Number(enMatch[3]);
+        if (year < 100) year += 2000;
+        const d = new Date(year, month, Number(enMatch[1]));
+        return isNaN(d.getTime()) ? null : d;
+      }
+    }
+    return null;
+  }
+
+  function formatDateDE(dateObj) {
+    if (!dateObj) return "—";
+    const dd = String(dateObj.getDate()).padStart(2, "0");
+    const mm = String(dateObj.getMonth() + 1).padStart(2, "0");
+    const yyyy = dateObj.getFullYear();
+    return `${dd}.${mm}.${yyyy}`;
+  }
+
+  function getISOWeekInfo(dateObj) {
+    if (!dateObj) return null;
+    const d = new Date(Date.UTC(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate()));
+    const dayNum = d.getUTCDay() || 7;
+    d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+    const week = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+    return {
+      year: d.getUTCFullYear(),
+      week,
+      key: `${d.getUTCFullYear()}-W${String(week).padStart(2, "0")}`,
+      label: `KW ${String(week).padStart(2, "0")} / ${d.getUTCFullYear()}`
+    };
+  }
+
+  function addWeeks(dateObj, weeks) {
+    if (!dateObj) return null;
+    const d = new Date(dateObj.getTime());
+    d.setDate(d.getDate() + weeks * 7);
+    return d;
+  }
+
+  function getWeekBoundaries(year, week) {
+    const simple = new Date(Date.UTC(year, 0, 1 + (week - 1) * 7));
+    const dow = simple.getUTCDay();
+    const monday = new Date(simple);
+    if (dow <= 4) monday.setUTCDate(simple.getUTCDate() - simple.getUTCDay() + 1);
+    else monday.setUTCDate(simple.getUTCDate() + 8 - simple.getUTCDay());
+
+    const sunday = new Date(monday);
+    sunday.setUTCDate(monday.getUTCDate() + 6);
+
+    const prevThursday = new Date(monday);
+    prevThursday.setUTCDate(monday.getUTCDate() - 4);
+
+    return { monday, sunday, prevThursday };
+  }
+
+  function detectDelimiter(headerLine) {
+    const semicolons = (headerLine.match(/;/g) || []).length;
+    const commas = (headerLine.match(/,/g) || []).length;
+    return semicolons >= commas ? ";" : ",";
+  }
+
+  function parseCSV(text) {
+    const cleanText = text.replace(/^\uFEFF/, "");
+    const lines = cleanText.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n").filter(l => l.trim() !== "");
+    if (lines.length < 2) return [];
+
+    const delimiter = detectDelimiter(lines[0]);
+
+    const parseLine = (line) => {
+      const result = [];
+      let current = "";
+      let inQuotes = false;
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (ch === '"') {
+          if (inQuotes && line[i + 1] === '"') {
+            current += '"';
+            i++;
+          } else {
+            inQuotes = !inQuotes;
+          }
+        } else if (ch === delimiter && !inQuotes) {
+          result.push(current.trim());
+          current = "";
+        } else {
+          current += ch;
+        }
+      }
+      result.push(current.trim());
+      return result;
+    };
+
+    const headers = parseLine(lines[0]);
+    const idxKey = headers.findIndex(h => h.toLowerCase().includes("issue key"));
+    const idxSummary = headers.findIndex(h => h.toLowerCase() === "summary");
+    const idxStatus = headers.findIndex(h => h.toLowerCase() === "status");
+    const idxPlace = headers.findIndex(h =>
+      h.toLowerCase().includes("brückenplatzname) (label)") ||
+      h.toLowerCase().includes("platzname) (label)")
+    );
+    const idxBridge = headers.findIndex(h => h.toLowerCase().includes("bridge number"));
+    const idxWunsch = headers.findIndex(h =>
+      h.toLowerCase().includes("tauschwunsch") || h.toLowerCase().includes("datum tauschwunsch")
+    );
+    const idxTats = headers.findIndex(h =>
+      h.toLowerCase().includes("tauschdatum") || h.toLowerCase().includes("exchange date")
+    );
+
+    return lines.slice(1).map((line, i) => {
+      const cols = parseLine(line);
+      const key = (idxKey >= 0 ? cols[idxKey] : cols[0]) || `ROW-${i}`;
+      const prefix = key.split("-")[0] || "OTHER";
+      const wunschDate = idxWunsch >= 0 ? parseJiraDate(cols[idxWunsch]) : null;
+      const tatsDate = idxTats >= 0 ? parseJiraDate(cols[idxTats]) : null;
+
+      return {
+        id: i,
+        key,
+        prefix,
+        summary: idxSummary >= 0 ? (cols[idxSummary] || "") : "",
+        status: idxStatus >= 0 ? (cols[idxStatus] || "") : "",
+        place: idxPlace >= 0 ? (cols[idxPlace] || "—") : "—",
+        bridge: idxBridge >= 0 ? (cols[idxBridge] || "—") : "—",
+        wunschDate,
+        tatsDate,
+        selected: true,
+        lateReported: false
+      };
+    });
+  }
+
+  function getEffectiveTargetDate(ticket) {
+    if (!ticket.wunschDate) return null;
+    return ticket.lateReported ? addWeeks(ticket.wunschDate, 1) : ticket.wunschDate;
+  }
+
+  function populateWeekDropdown() {
+    const kwSelect = document.getElementById("kwSelect");
+    const weekMap = new Map();
+
+    allTickets.forEach(t => {
+      const effWunsch = getEffectiveTargetDate(t);
+      const wInfo = getISOWeekInfo(effWunsch);
+      const tInfo = getISOWeekInfo(t.tatsDate);
+      if (wInfo) weekMap.set(wInfo.key, wInfo);
+      if (tInfo) weekMap.set(tInfo.key, tInfo);
+    });
+
+    const sortedWeeks = Array.from(weekMap.values()).sort((a, b) => a.key.localeCompare(b.key));
+    const currentSelection = kwSelect.value;
+
+    kwSelect.innerHTML = "";
+
+    if (sortedWeeks.length === 0) {
+      const opt = document.createElement("option");
+      opt.value = "";
+      opt.textContent = "Keine KW-Daten in CSV gefunden";
+      kwSelect.appendChild(opt);
+      kwSelect.disabled = true;
+      return;
+    }
+
+    sortedWeeks.forEach(w => {
+      const opt = document.createElement("option");
+      opt.value = w.key;
+      opt.textContent = w.label;
+      kwSelect.appendChild(opt);
+    });
+
+    kwSelect.disabled = false;
+    kwSelect.style.color = "#2563eb";
+
+    if (currentSelection && weekMap.has(currentSelection)) {
+      kwSelect.value = currentSelection;
+    } else {
+      kwSelect.value = sortedWeeks[Math.max(0, sortedWeeks.length - 2)].key;
+    }
+  }
+
+  function evaluateTicketForWeek(ticket, selectedKwKey) {
+    const effTarget = getEffectiveTargetDate(ticket);
+    const targetKw = getISOWeekInfo(effTarget);
+    const actualKw = getISOWeekInfo(ticket.tatsDate);
+
+    if (targetKw && targetKw.key === selectedKwKey) {
+      if (actualKw && actualKw.key <= selectedKwKey) {
+        return {
+          category: "GETAUSCHT",
+          badge: actualKw.key === selectedKwKey
+            ? `<span class="badge badge-green">Getauscht (${actualKw.label})</span>`
+            : `<span class="badge badge-green">Vorgezogen getauscht (${actualKw.label})</span>`,
+          relevant: true
+        };
+      } else {
+        const reason = actualKw ? `Verschoben auf ${actualKw.label}` : "Verschoben (noch kein Tauschdatum)";
+        return {
+          category: "VERSCHOBEN",
+          badge: `<span class="badge badge-red">${reason}</span>`,
+          relevant: true
+        };
+      }
+    }
+
+    if (actualKw && actualKw.key === selectedKwKey) {
+      return {
+        category: "GETAUSCHT",
+        badge: !targetKw
+          ? `<span class="badge badge-green">Getauscht (ohne Wunschdatum)</span>`
+          : `<span class="badge badge-blue">Getauscht (Wunsch war ${targetKw.label})</span>`,
+        relevant: true
+      };
+    }
+
+    if (!targetKw && !actualKw) {
+      return {
+        category: "UNTERMIN",
+        badge: `<span class="badge badge-amber">Kein Datum hinterlegt</span>`,
+        relevant: false
+      };
+    }
+
+    return { category: "OTHER", badge: "", relevant: false };
+  }
+
+  function render() {
+    const kwSelect = document.getElementById("kwSelect");
+    const selectedKwKey = kwSelect.value;
+    const projectFilter = document.getElementById("projectFilter").value;
+    const search = document.getElementById("searchInput").value.trim().toLowerCase();
+
+    if (!selectedKwKey) return;
+
+    const [yearStr, wStr] = selectedKwKey.split("-W");
+    const { monday, sunday, prevThursday } = getWeekBoundaries(Number(yearStr), Number(wStr));
+    const banner = document.getElementById("deadlineBanner");
+    banner.style.display = "flex";
+    document.getElementById("deadlineText").innerHTML =
+      `<strong>KW ${wStr}/${yearStr}</strong> (${formatDateDE(monday)} – ${formatDateDE(sunday)}) &nbsp;|&nbsp; ` +
+      `Meldefrist für pünktliche Berücksichtigung: <strong>Donnerstag, ${formatDateDE(prevThursday)}</strong>`;
+
+    const filteredBase = allTickets.filter(t => {
+      if (projectFilter !== "ALL" && t.prefix !== projectFilter) return false;
+      if (search) {
+        const hay = `${t.key} ${t.place} ${t.bridge} ${t.summary} ${t.status}`.toLowerCase();
+        if (!hay.includes(search)) return false;
+      }
+      return true;
+    });
+
+    const evaluated = filteredBase
+      .map(t => ({ ticket: t, eval: evaluateTicketForWeek(t, selectedKwKey) }))
+      .filter(item => item.eval.relevant || (activeStatusTab === "UNTERMIN" && item.eval.category === "UNTERMIN"));
+
+    const activeItems = evaluated.filter(i => i.ticket.selected && i.eval.relevant);
+    const swappedCount = activeItems.filter(i => i.eval.category === "GETAUSCHT").length;
+    const postponedCount = activeItems.filter(i => i.eval.category === "VERSCHOBEN").length;
+    const lateCount = activeItems.filter(i => i.ticket.lateReported).length;
+    const totalCount = activeItems.length;
+    const rate = totalCount > 0 ? Math.round((swappedCount / totalCount) * 100) : 0;
+
+    document.getElementById("kpiTotal").textContent = totalCount;
+    document.getElementById("kpiSwapped").textContent = swappedCount;
+    document.getElementById("kpiSwappedRate").textContent = `${rate} % der ausgewählten Tickets`;
+    document.getElementById("kpiPostponed").textContent = postponedCount;
+    document.getElementById("kpiLate").textContent = lateCount;
+
+    const relevantAll = evaluated.filter(i => i.eval.relevant);
+    const noDateAll = filteredBase
+      .map(t => ({ ticket: t, eval: evaluateTicketForWeek(t, selectedKwKey) }))
+      .filter(i => i.eval.category === "UNTERMIN");
+
+    document.getElementById("countAll").textContent = relevantAll.length;
+    document.getElementById("countSwapped").textContent = relevantAll.filter(i => i.eval.category === "GETAUSCHT").length;
+    document.getElementById("countPostponed").textContent = relevantAll.filter(i => i.eval.category === "VERSCHOBEN").length;
+    document.getElementById("countNoDate").textContent = noDateAll.length;
+
+    let displayItems = activeStatusTab === "UNTERMIN" ? noDateAll : relevantAll;
+    if (activeStatusTab === "GETAUSCHT") {
+      displayItems = relevantAll.filter(i => i.eval.category === "GETAUSCHT");
+    } else if (activeStatusTab === "VERSCHOBEN") {
+      displayItems = relevantAll.filter(i => i.eval.category === "VERSCHOBEN");
+    }
+
+    const tbody = document.getElementById("tableBody");
+    if (displayItems.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="9" class="empty-state">Keine Tickets für diese Auswahl vorhanden.</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = displayItems.map(({ ticket, eval: ev }) => {
+      const effDate = getEffectiveTargetDate(ticket);
+      const wunschHtml = ticket.wunschDate
+        ? (ticket.lateReported
+            ? `<span style="text-decoration:line-through;color:#94a3b8;">${formatDateDE(ticket.wunschDate)}</span> → <strong>${formatDateDE(effDate)}</strong>`
+            : formatDateDE(ticket.wunschDate))
+        : "—";
+
+      return `
+        <tr class="${ticket.selected ? "" : "deselected"}">
+          <td><input type="checkbox" class="row-select" data-id="${ticket.id}" ${ticket.selected ? "checked" : ""} /></td>
+          <td><strong>${ticket.key}</strong><br><span style="font-size:0.76rem;color:#64748b;">${ticket.status}</span></td>
+          <td>${ticket.place}</td>
+          <td>${ticket.bridge}</td>
+          <td style="max-width:260px;">${ticket.summary}</td>
+          <td>${wunschHtml}</td>
+          <td>${formatDateDE(ticket.tatsDate)}</td>
+          <td>
+            <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:0.82rem;">
+              <input type="checkbox" class="late-toggle" data-id="${ticket.id}" ${ticket.lateReported ? "checked" : ""} ${!ticket.wunschDate ? "disabled" : ""} />
+              +1 KW
+            </label>
+          </td>
+          <td>${ev.badge}</td>
+        </tr>
+      `;
+    }).join("");
+
+    document.querySelectorAll(".row-select").forEach(cb => {
+      cb.addEventListener("change", (e) => {
+        const id = Number(e.target.dataset.id);
+        const t = allTickets.find(x => x.id === id);
+        if (t) t.selected = e.target.checked;
+        render();
+      });
+    });
+
+    document.querySelectorAll(".late-toggle").forEach(cb => {
+      cb.addEventListener("change", (e) => {
+        const id = Number(e.target.dataset.id);
+        const t = allTickets.find(x => x.id === id);
+        if (t) t.lateReported = e.target.checked;
+        populateWeekDropdown();
+        render();
+      });
+    });
+  }
+
+  function processUploadedFile(file) {
+    if (!file) return;
+    const statusBadge = document.getElementById("fileStatus");
+    statusBadge.textContent = "⏳ Lese Datei ein...";
+    statusBadge.className = "file-status";
+
+    const reader = new FileReader();
+    reader.onload = function(ev) {
+      const buffer = ev.target.result;
+      let text = new TextDecoder("utf-8").decode(buffer);
+      if (text.includes("\uFFFD")) {
+        text = text.replace(/\uFFFD/g, "ä");
+      }
+
+      allTickets = parseCSV(text);
+      statusBadge.textContent = `✅ ${file.name} (${allTickets.length} Tickets)`;
+      statusBadge.className = "file-status loaded";
+
+      populateWeekDropdown();
+      document.getElementById("selectAllBtn").disabled = false;
+      document.getElementById("deselectAllBtn").disabled = false;
+      document.getElementById("exportCsvBtn").disabled = false;
+      render();
+    };
+    reader.onerror = function() {
+      statusBadge.textContent = "❌ Fehler beim Lesen der Datei";
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  const fileInput = document.getElementById("csvFileInput");
+  document.getElementById("uploadTriggerBtn").addEventListener("click", () => {
+    fileInput.value = "";
+    fileInput.click();
+  });
+
+  fileInput.addEventListener("change", (e) => {
+    if (e.target.files && e.target.files[0]) {
+      processUploadedFile(e.target.files[0]);
+    }
+  });
+
+  const dropZone = document.getElementById("dropZone");
+  if (dropZone) {
+    dropZone.addEventListener("click", () => {
+      fileInput.value = "";
+      fileInput.click();
+    });
+    dropZone.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      dropZone.classList.add("dragover");
+    });
+    dropZone.addEventListener("dragleave", () => {
+      dropZone.classList.remove("dragover");
+    });
+    dropZone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      dropZone.classList.remove("dragover");
+      if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+        processUploadedFile(e.dataTransfer.files[0]);
+      }
+    });
+  }
+
+  document.getElementById("kwSelect").addEventListener("change", render);
+  document.getElementById("projectFilter").addEventListener("change", render);
+  document.getElementById("searchInput").addEventListener("input", render);
+
+  document.querySelectorAll(".tab").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".tab").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      activeStatusTab = btn.dataset.filter;
+      render();
+    });
+  });
+
+  document.getElementById("selectAllBtn").addEventListener("click", () => {
+    allTickets.forEach(t => t.selected = true);
+    render();
+  });
+
+  document.getElementById("deselectAllBtn").addEventListener("click", () => {
+    allTickets.forEach(t => t.selected = false);
+    render();
+  });
+
+  document.getElementById("masterCheckbox").addEventListener("change", (e) => {
+    const checked = e.target.checked;
+    document.querySelectorAll(".row-select").forEach(cb => {
+      const id = Number(cb.dataset.id);
+      const t = allTickets.find(x => x.id === id);
+      if (t) t.selected = checked;
+    });
+    render();
+  });
+
+  document.getElementById("exportCsvBtn").addEventListener("click", () => {
+    const selectedKwKey = document.getElementById("kwSelect").value;
+    if (!selectedKwKey) return;
+
+    const rows = [["Ticket", "Standort", "Brueckennummer", "Wunschdatum", "Tatsaechliches_Tauschdatum", "Nach_Do_gemeldet", "Ergebnis"]];
+    allTickets.forEach(t => {
+      if (!t.selected) return;
+      const ev = evaluateTicketForWeek(t, selectedKwKey);
+      if (!ev.relevant) return;
+      rows.push([
+        t.key,
+        `"${t.place.replace(/"/g, '""')}"`,
+        `"${t.bridge.replace(/"/g, '""')}"`,
+        formatDateDE(getEffectiveTargetDate(t)),
+        formatDateDE(t.tatsDate),
+        t.lateReported ? "Ja (+1 KW)" : "Nein",
+        ev.category
+      ]);
+    });
+
+    const csvContent = "\uFEFF" + rows.map(r => r.join(";")).join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `Tauschauswertung_${selectedKwKey}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+</script>
+</body>
+</html>
