@@ -268,6 +268,13 @@
     .badge-amber { background: var(--amber-bg); color: var(--amber-text); }
     .badge-blue { background: var(--blue-bg); color: var(--blue-text); }
 
+    .sub-note {
+      display: block;
+      font-size: 0.75rem;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
     .empty-state {
       text-align: center;
       padding: 60px 20px;
@@ -294,7 +301,7 @@
 <header>
   <div>
     <h1>Wechselbrücken Tausch-Monitor</h1>
-    <p>Auswertung nach Kalenderwoche (inkl. Donnerstag-Meldefrist &amp; Verschiebungs-Tracking)</p>
+    <p>Auswertung nach Kalenderwoche (inkl. Donnerstag-Meldefrist &amp; Übernahme offener Tickets)</p>
   </div>
   <div class="upload-area">
     <span id="fileStatus" class="file-status">Keine Datei geladen</span>
@@ -341,22 +348,22 @@
     <div class="kpi-card">
       <div class="kpi-title">Ausgewählte Datensätze (KW)</div>
       <div class="kpi-value" id="kpiTotal">0</div>
-      <div class="kpi-sub" id="kpiTotalSub">Relevante Tickets für diese KW</div>
+      <div class="kpi-sub">In dieser KW getauschte &amp; offene Tickets</div>
     </div>
     <div class="kpi-card">
-      <div class="kpi-title">Erfolgreich getauscht</div>
+      <div class="kpi-title">In dieser KW getauscht</div>
       <div class="kpi-value" style="color:#166534;" id="kpiSwapped">0</div>
       <div class="kpi-sub" id="kpiSwappedRate">0 % Quote</div>
     </div>
     <div class="kpi-card">
-      <div class="kpi-title">Verschoben</div>
+      <div class="kpi-title">Verschoben / Offen</div>
       <div class="kpi-value" style="color:#991b1b;" id="kpiPostponed">0</div>
-      <div class="kpi-sub">Pünktlich gemeldet, aber nicht in KW getauscht</div>
+      <div class="kpi-sub">Noch nicht getauscht (wandert in Folge-KW mit)</div>
     </div>
     <div class="kpi-card">
       <div class="kpi-title">Vorgemerkt (Nach Do. gemeldet)</div>
       <div class="kpi-value" style="color:#92400e;" id="kpiLate">0</div>
-      <div class="kpi-sub">In diese KW aus Vorwoche gerutscht</div>
+      <div class="kpi-sub">Ziel-KW um +1 Woche verschoben</div>
     </div>
   </div>
 
@@ -411,6 +418,15 @@
     Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11
   };
 
+  function hasCompletedStatusWithoutDate(ticket) {
+    if (ticket.tatsDate) return false;
+    const st = (ticket.status || "").trim().toLowerCase();
+    if (!st) return false;
+    return [
+      "erledigt", "geschlossen", "abgeschlossen", "getauscht", "done", "closed", "resolved"
+    ].some(term => st === term || st.includes(term));
+  }
+
   function parseJiraDate(str) {
     if (!str) return null;
     const clean = str.trim();
@@ -434,6 +450,14 @@
         return isNaN(d.getTime()) ? null : d;
       }
     }
+
+    // Format 3: YYYY-MM-DD
+    const isoMatch = clean.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (isoMatch) {
+      const d = new Date(Number(isoMatch[1]), Number(isoMatch[2]) - 1, Number(isoMatch[3]));
+      return isNaN(d.getTime()) ? null : d;
+    }
+
     return null;
   }
 
@@ -452,11 +476,19 @@
     d.setUTCDate(d.getUTCDate() + 4 - dayNum);
     const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
     const week = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+
+    const mondayUtc = new Date(Date.UTC(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate()));
+    const localDow = mondayUtc.getUTCDay() || 7;
+    mondayUtc.setUTCDate(mondayUtc.getUTCDate() - (localDow - 1));
+    const weekIndex = Math.floor(mondayUtc.getTime() / (7 * 86400000));
+
     return {
       year: d.getUTCFullYear(),
       week,
+      weekIndex,
       key: `${d.getUTCFullYear()}-W${String(week).padStart(2, "0")}`,
-      label: `KW ${String(week).padStart(2, "0")} / ${d.getUTCFullYear()}`
+      label: `KW ${String(week).padStart(2, "0")} / ${d.getUTCFullYear()}`,
+      shortLabel: `KW ${String(week).padStart(2, "0")}`
     };
   }
 
@@ -576,7 +608,7 @@
       if (tInfo) weekMap.set(tInfo.key, tInfo);
     });
 
-    const sortedWeeks = Array.from(weekMap.values()).sort((a, b) => a.key.localeCompare(b.key));
+    const sortedWeeks = Array.from(weekMap.values()).sort((a, b) => a.weekIndex - b.weekIndex);
     const currentSelection = kwSelect.value;
 
     kwSelect.innerHTML = "";
@@ -608,48 +640,99 @@
   }
 
   function evaluateTicketForWeek(ticket, selectedKwKey) {
+    const [selYearStr, selWeekStr] = selectedKwKey.split("-W");
+    const { monday: selMonday } = getWeekBoundaries(Number(selYearStr), Number(selWeekStr));
+    const selectedKw = getISOWeekInfo(new Date(selMonday.getUTCFullYear(), selMonday.getUTCMonth(), selMonday.getUTCDate()));
+
     const effTarget = getEffectiveTargetDate(ticket);
     const targetKw = getISOWeekInfo(effTarget);
     const actualKw = getISOWeekInfo(ticket.tatsDate);
 
-    if (targetKw && targetKw.key === selectedKwKey) {
-      if (actualKw && actualKw.key <= selectedKwKey) {
-        return {
-          category: "GETAUSCHT",
-          badge: actualKw.key === selectedKwKey
-            ? `<span class="badge badge-green">Getauscht (${actualKw.label})</span>`
-            : `<span class="badge badge-green">Vorgezogen getauscht (${actualKw.label})</span>`,
-          relevant: true
-        };
-      } else {
-        const reason = actualKw ? `Verschoben auf ${actualKw.label}` : "Verschoben (noch kein Tauschdatum)";
-        return {
-          category: "VERSCHOBEN",
-          badge: `<span class="badge badge-red">${reason}</span>`,
-          relevant: true
-        };
+    // 1. Nur diejenigen als "Getauscht" anzeigen, die GENAU in der angezeigten KW getauscht wurden
+    if (actualKw && actualKw.weekIndex === selectedKw.weekIndex) {
+      let label = "Getauscht";
+      let note = "";
+      if (!targetKw) {
+        note = "Ohne Wunschdatum in dieser KW getauscht";
+      } else if (targetKw.weekIndex < selectedKw.weekIndex) {
+        note = `Übernommen aus ${targetKw.label}`;
+      } else if (targetKw.weekIndex > selectedKw.weekIndex) {
+        label = "Vorgezogen getauscht";
+        note = `Wunsch war ${targetKw.label}`;
       }
-    }
-
-    if (actualKw && actualKw.key === selectedKwKey) {
       return {
         category: "GETAUSCHT",
-        badge: !targetKw
-          ? `<span class="badge badge-green">Getauscht (ohne Wunschdatum)</span>`
-          : `<span class="badge badge-blue">Getauscht (Wunsch war ${targetKw.label})</span>`,
+        statusText: label + (note ? ` (${note})` : ""),
+        originKw: targetKw ? targetKw.label : "—",
+        carriedOver: Boolean(targetKw && targetKw.weekIndex < selectedKw.weekIndex),
+        badge:
+          `<span class="badge badge-green">${label}</span>` +
+          (note ? `<span class="sub-note">${note}</span>` : ""),
         relevant: true
       };
     }
 
+    // 2. Bereits in einer FRÜHEREN KW getauschte Fälle (oder ohne Datum erledigte Tickets)
+    //    erscheinen in der angezeigten KW nicht mehr!
+    if ((actualKw && actualKw.weekIndex < selectedKw.weekIndex) || hasCompletedStatusWithoutDate(ticket)) {
+      return {
+        category: "COMPLETED_BEFORE",
+        statusText: "Bereits erledigt",
+        originKw: targetKw ? targetKw.label : "—",
+        carriedOver: false,
+        badge: "",
+        relevant: false
+      };
+    }
+
+    // 3. Offene bzw. auf spätere KWs verschobene Tickets (targetKw <= selectedKw < actualKw oder noch kein tatsDate)
+    if (targetKw && targetKw.weekIndex <= selectedKw.weekIndex) {
+      const isCarriedOver = targetKw.weekIndex < selectedKw.weekIndex;
+      const isNextWeekActual = actualKw && actualKw.weekIndex === selectedKw.weekIndex + 1;
+
+      let badgeHtml = "";
+      let statusText = "";
+
+      if (isNextWeekActual) {
+        statusText = `Wird in ${actualKw.shortLabel} getauscht`;
+        badgeHtml = `<span class="badge badge-amber">Wird in ${actualKw.shortLabel} getauscht</span>`;
+      } else if (actualKw && actualKw.weekIndex > selectedKw.weekIndex + 1) {
+        statusText = `Verschoben auf ${actualKw.label}`;
+        badgeHtml = `<span class="badge badge-red">Verschoben auf ${actualKw.label}</span>`;
+      } else {
+        statusText = isCarriedOver
+          ? `Verschoben / Offen (übernommen aus ${targetKw.label})`
+          : "Verschoben (noch kein Tauschdatum)";
+        badgeHtml = `<span class="badge badge-red">Verschoben</span>`;
+      }
+
+      const subNote = isCarriedOver
+        ? `Übernommen aus ${targetKw.label}${actualKw && !isNextWeekActual ? ` · Tausch: ${actualKw.label}` : ""}`
+        : (actualKw && !isNextWeekActual ? `Tauschdatum: ${actualKw.label}` : "Nicht in dieser KW getauscht");
+
+      return {
+        category: "VERSCHOBEN",
+        statusText,
+        originKw: targetKw.label,
+        carriedOver: isCarriedOver,
+        badge: badgeHtml + `<span class="sub-note">${subNote}</span>`,
+        relevant: true
+      };
+    }
+
+    // 4. Weder Ziel-KW noch tatsächliches Tauschdatum vorhanden
     if (!targetKw && !actualKw) {
       return {
         category: "UNTERMIN",
+        statusText: "Kein Datum hinterlegt",
+        originKw: "—",
+        carriedOver: false,
         badge: `<span class="badge badge-amber">Kein Datum hinterlegt</span>`,
         relevant: false
       };
     }
 
-    return { category: "OTHER", badge: "", relevant: false };
+    return { category: "OTHER", statusText: "", originKw: "—", carriedOver: false, badge: "", relevant: false };
   }
 
   function render() {
@@ -677,11 +760,15 @@
       return true;
     });
 
-    const evaluated = filteredBase
-      .map(t => ({ ticket: t, eval: evaluateTicketForWeek(t, selectedKwKey) }))
-      .filter(item => item.eval.relevant || (activeStatusTab === "UNTERMIN" && item.eval.category === "UNTERMIN"));
+    const allEvaluated = filteredBase.map(t => ({
+      ticket: t,
+      eval: evaluateTicketForWeek(t, selectedKwKey)
+    }));
 
-    const activeItems = evaluated.filter(i => i.ticket.selected && i.eval.relevant);
+    const relevantAll = allEvaluated.filter(i => i.eval.relevant);
+    const noDateAll = allEvaluated.filter(i => i.eval.category === "UNTERMIN");
+
+    const activeItems = relevantAll.filter(i => i.ticket.selected);
     const swappedCount = activeItems.filter(i => i.eval.category === "GETAUSCHT").length;
     const postponedCount = activeItems.filter(i => i.eval.category === "VERSCHOBEN").length;
     const lateCount = activeItems.filter(i => i.ticket.lateReported).length;
@@ -694,18 +781,15 @@
     document.getElementById("kpiPostponed").textContent = postponedCount;
     document.getElementById("kpiLate").textContent = lateCount;
 
-    const relevantAll = evaluated.filter(i => i.eval.relevant);
-    const noDateAll = filteredBase
-      .map(t => ({ ticket: t, eval: evaluateTicketForWeek(t, selectedKwKey) }))
-      .filter(i => i.eval.category === "UNTERMIN");
-
     document.getElementById("countAll").textContent = relevantAll.length;
     document.getElementById("countSwapped").textContent = relevantAll.filter(i => i.eval.category === "GETAUSCHT").length;
     document.getElementById("countPostponed").textContent = relevantAll.filter(i => i.eval.category === "VERSCHOBEN").length;
     document.getElementById("countNoDate").textContent = noDateAll.length;
 
-    let displayItems = activeStatusTab === "UNTERMIN" ? noDateAll : relevantAll;
-    if (activeStatusTab === "GETAUSCHT") {
+    let displayItems = relevantAll;
+    if (activeStatusTab === "UNTERMIN") {
+      displayItems = noDateAll;
+    } else if (activeStatusTab === "GETAUSCHT") {
       displayItems = relevantAll.filter(i => i.eval.category === "GETAUSCHT");
     } else if (activeStatusTab === "VERSCHOBEN") {
       displayItems = relevantAll.filter(i => i.eval.category === "VERSCHOBEN");
@@ -776,7 +860,11 @@
       const buffer = ev.target.result;
       let text = new TextDecoder("utf-8").decode(buffer);
       if (text.includes("\uFFFD")) {
-        text = text.replace(/\uFFFD/g, "ä");
+        try {
+          text = new TextDecoder("windows-1252").decode(buffer);
+        } catch (_) {
+          text = text.replace(/\uFFFD/g, "ä");
+        }
       }
 
       allTickets = parseCSV(text);
@@ -866,7 +954,18 @@
     const selectedKwKey = document.getElementById("kwSelect").value;
     if (!selectedKwKey) return;
 
-    const rows = [["Ticket", "Standort", "Brueckennummer", "Wunschdatum", "Tatsaechliches_Tauschdatum", "Nach_Do_gemeldet", "Ergebnis"]];
+    const rows = [[
+      "Ticket",
+      "Standort",
+      "Brueckennummer",
+      "Urspruengliche_KW",
+      "Wunschdatum",
+      "Tatsaechliches_Tauschdatum",
+      "Nach_Do_gemeldet",
+      "Kategorie",
+      "Bewertung"
+    ]];
+
     allTickets.forEach(t => {
       if (!t.selected) return;
       const ev = evaluateTicketForWeek(t, selectedKwKey);
@@ -875,10 +974,12 @@
         t.key,
         `"${t.place.replace(/"/g, '""')}"`,
         `"${t.bridge.replace(/"/g, '""')}"`,
+        `"${ev.originKw.replace(/"/g, '""')}"`,
         formatDateDE(getEffectiveTargetDate(t)),
         formatDateDE(t.tatsDate),
         t.lateReported ? "Ja (+1 KW)" : "Nein",
-        ev.category
+        ev.category,
+        `"${ev.statusText.replace(/"/g, '""')}"`
       ]);
     });
 
